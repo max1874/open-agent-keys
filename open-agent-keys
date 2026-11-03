@@ -60,11 +60,15 @@ class Store:
         except FileNotFoundError:
             die(f"`{self.cli}` is not installed; see the README")
 
-    def query(self, *args, stdin=None):
+    def check(self, *args, stdin=None):
         r = self.call(*args, stdin=stdin)
         if r.returncode != 0:
             fail(self.cli, r)
-        return json.loads(r.stdout) if r.stdout.strip() else None
+        return r.stdout
+
+    def query(self, *args, stdin=None):
+        out = self.check(*args, stdin=stdin)
+        return json.loads(out) if out.strip() else None
 
 
 class OnePassword(Store):
@@ -106,7 +110,7 @@ class OnePassword(Store):
         self.query("item", "edit", item, "--vault", vault, "--format", "json", f"notesPlain={text}")
 
     def remove(self, vault, item):
-        self.query("item", "delete", item, "--vault", vault, "--archive")
+        self.check("item", "delete", item, "--vault", vault, "--archive")
 
 
 class Bitwarden(Store):
@@ -138,7 +142,8 @@ class Bitwarden(Store):
         self.query("secret", "edit", item, "--note", text)
 
     def remove(self, project, item):
-        self.query("secret", "delete", item)
+        # Plain text ("1 secret deleted successfully.") even with --output json.
+        self.check("secret", "delete", item)
 
 
 STORES = {"1password": OnePassword, "bitwarden": Bitwarden}
