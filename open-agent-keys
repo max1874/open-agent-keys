@@ -29,8 +29,8 @@ import subprocess
 import sys
 
 CONFIG_DIR = os.path.expanduser(os.environ.get("OPEN_AGENT_KEYS_CONFIG_DIR", "~/.config/open-agent-keys"))
-# Names, tags and notes only, never values. `run` reads it before listing the store, and
-# 1Password fetches a note only when its item changed: service accounts have a request quota.
+# Names, tags and notes, never values. It lets `run` skip listing the store, and 1Password skip
+# re-fetching notes that did not change, which would count against a service account's quota.
 CACHE_FILE = os.path.join(CONFIG_DIR, "cache.json")
 
 
@@ -48,7 +48,7 @@ class Store:
 
     cli = token_env = None
     env = {}
-    tags = True
+    has_tags = True
 
     def __init__(self, token):
         self.token = token
@@ -115,7 +115,7 @@ class OnePassword(Store):
 
 class Bitwarden(Store):
     cli, token_env = "bws", "BWS_ACCESS_TOKEN"
-    tags = False
+    has_tags = False
 
     def call(self, *args, stdin=None):
         return super().call("--output", "json", *args, stdin=stdin)
@@ -129,17 +129,19 @@ class Bitwarden(Store):
     def read(self, project, item):
         r = self.call("secret", "get", item)
         if r.returncode == 0:
-            return json.loads(r.stdout)["value"]
+            s = json.loads(r.stdout)
+            # A secret moved to another project after the cache was written belongs to that scope now.
+            return s["value"] if s["projectId"] == project else None
         if "404" in r.stderr:
             return None
         fail(self.cli, r)
 
     def create(self, project, title, value, note, tags):
         # bws takes the value only as an argument, visible to `ps` for as long as bws runs.
-        self.query("secret", "create", "--note", note, "--", title, value, project)
+        self.query("secret", "create", f"--note={note}", "--", title, value, project)
 
     def set_note(self, project, item, text):
-        self.query("secret", "edit", item, "--note", text)
+        self.query("secret", "edit", item, f"--note={text}")
 
     def remove(self, project, item):
         # Plain text ("1 secret deleted successfully.") even with --output json.
@@ -149,10 +151,14 @@ class Bitwarden(Store):
 STORES = {"1password": OnePassword, "bitwarden": Bitwarden}
 
 
+class Clash(Exception):
+    """Two items map to the same NAME."""
+
+
 class Keys:
     def __init__(self):
         path = os.path.join(CONFIG_DIR, "config.ini")
-        cp = configparser.ConfigParser(interpolation=None)
+        cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";", "#"))
         if not cp.read(path):
             die(f"no config at {path}; see the README")
         kind = cp.get("store", "type", fallback="")
@@ -163,7 +169,8 @@ class Keys:
             die(f"{path}: add at least one [scope NAME] section with an id")
         token_file = os.path.expanduser(cp.get("store", "token_file", fallback=os.path.join(CONFIG_DIR, "token")))
         try:
-            token = open(token_file).read().strip()
+            with open(token_file) as f:
+                token = f.read().strip()
         except OSError as e:
             die(f"cannot read {token_file}: {e.strerror}; tell the user, do not look for keys elsewhere")
         if not token:
@@ -171,34 +178,50 @@ class Keys:
         self.store = STORES[kind](token)
 
     def name(self, scope, title):
-        # The scope is the only routing rule, so a task in one scope cannot pick up another's key by accident.
         prefix = self.scopes[scope].get("prefix", "").upper()
-        base = re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_").upper()
-        return base if base.startswith(prefix) else prefix + base
+        return prefix + re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_").upper()
 
     def by_name(self, entries):
-        return {self.name(e["scope"], e["title"]): {**e, "id": i}
-                for i, e in entries.items() if e.get("scope") in self.scopes}
+        named = {}
+        for i, e in entries.items():
+            if e.get("scope") not in self.scopes:
+                continue
+            name = self.name(e["scope"], e["title"])
+            if name in named:
+                # Picking either could hand one scope's key to another scope's task.
+                other = named[name]
+                raise Clash(f'"{other["title"]}" ({other["scope"]}) and "{e["title"]}" ({e["scope"]}) '
+                            f"are both {name}; rename one")
+            named[name] = {**e, "id": i}
+        return named
+
+    def load_cache(self):
+        try:
+            with open(CACHE_FILE) as f:
+                entries = json.load(f)
+        except (OSError, ValueError):
+            return {}
+        return entries if isinstance(entries, dict) else {}
 
     def cached(self):
         try:
-            return self.by_name(json.load(open(CACHE_FILE)))
-        except (OSError, ValueError, KeyError):
-            return {}
+            return self.by_name(self.load_cache())
+        except (KeyError, AttributeError, TypeError, Clash):
+            return {}  # stale or malformed: the caller lists the store
 
     def index(self):
-        old = {e["id"]: e for e in self.cached().values()}
+        old = self.load_cache()
         fresh = {}
         for scope, conf in self.scopes.items():
             for item in self.store.items(conf["id"]):
                 i = item.pop("id")
                 prev = old.get(i)
                 if "note" not in item:
-                    same = prev and prev["updated_at"] == item["updated_at"]
+                    same = isinstance(prev, dict) and "note" in prev and prev.get("updated_at") == item["updated_at"]
                     item["note"] = prev["note"] if same else self.store.note(conf["id"], i)
                 fresh[i] = {**item, "scope": scope}
         try:
-            os.makedirs(CONFIG_DIR, exist_ok=True)
+            os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
             with open(CACHE_FILE, "w") as f:
                 json.dump(fresh, f)
         except OSError:
@@ -245,20 +268,33 @@ def cmd_run(keys, args):
 def cmd_env(keys, args):
     if len(args) < 2:
         die("usage: open-agent-keys env FILE NAME[=SECRET]...")
-    path, values = args[0], keys.pick(args[1:])
-    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    path = args[0]
+    values = {k: dotenv_value(k, v) for k, v in keys.pick(args[1:]).items()}
+    lines = []
+    if os.path.exists(path):
+        with open(path) as f:
+            lines = f.read().splitlines()
     done = set()
     for n, line in enumerate(lines):
-        m = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
-        if m and m.group(1) in values:
-            lines[n] = f"{m.group(1)}={values[m.group(1)]}"
-            done.add(m.group(1))
+        m = re.match(r"(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+        if m and m.group(2) in values:
+            lines[n] = f"{m.group(1)}{m.group(2)}={values[m.group(2)]}"
+            done.add(m.group(2))
     lines += [f"{k}={v}" for k, v in values.items() if k not in done]
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)  # an existing file keeps its mode through O_TRUNC; tighten it before writing
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")
-    os.chmod(path, 0o600)
     print(f"wrote {', '.join(values)} to {path}")
+
+
+def dotenv_value(name, value):
+    if re.fullmatch(r"[A-Za-z0-9_.,:@/+=-]*", value):
+        return value
+    if "'" in value or "\n" in value:
+        die(f"{name} holds a quote or line break that dotenv files cannot carry reliably; use `open-agent-keys run`")
+    # Single quotes keep $ and spaces literal for shells, Docker Compose and python-dotenv alike.
+    return f"'{value}'"
 
 
 def cmd_add(keys, args):
@@ -270,7 +306,7 @@ def cmd_add(keys, args):
     a = p.parse_args(args)
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 ]*", a.title) or a.title != a.title.strip():
         die('title must be words of letters and digits, e.g. "OpenAI Scripts"')
-    if a.tag and not keys.store.tags:
+    if a.tag and not keys.store.has_tags:
         die(f"{keys.store.cli} has no tags; leave out --tag")
     name = keys.name(a.scope, a.title)
     if name in keys.index():
@@ -309,7 +345,10 @@ def main():
         return
     if sys.argv[1] not in cmds:
         die(f"unknown command {sys.argv[1]}; see `open-agent-keys --help`")
-    cmds[sys.argv[1]](Keys(), sys.argv[2:])
+    try:
+        cmds[sys.argv[1]](Keys(), sys.argv[2:])
+    except Clash as e:
+        die(str(e))
 
 
 if __name__ == "__main__":

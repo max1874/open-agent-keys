@@ -42,7 +42,7 @@ or clone this repository and symlink `open-agent-keys` onto your `PATH`. You als
 
    ```sh
    mkdir -p ~/.config/open-agent-keys && chmod 700 ~/.config/open-agent-keys
-   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token   # the service account token
+   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token   # the service account token (Linux: wl-paste or xclip -o)
    OP_SERVICE_ACCOUNT_TOKEN=$(cat ~/.config/open-agent-keys/token) op vault list
    ```
 
@@ -66,7 +66,7 @@ Keys are API Credential items: the value in `credential`, the note in the item's
 
    ```sh
    mkdir -p ~/.config/open-agent-keys && chmod 700 ~/.config/open-agent-keys
-   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token   # the access token
+   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token   # the access token (Linux: wl-paste or xclip -o)
    BWS_ACCESS_TOKEN=$(cat ~/.config/open-agent-keys/token) bws project list
    ```
 
@@ -106,7 +106,7 @@ id = <vault id>
 prefix = WORK_
 ```
 
-A key's name is its scope's prefix plus its title in upper case with spaces as underscores: "Gemini Prod" in `Work` is `WORK_GEMINI_PROD`. The name alone tells an agent which side a key belongs to, so a personal script cannot pick up a company key by accident. In 1Password, tags nest under the scope (`Work/Gemini`), so the sidebar never mixes the two.
+A key's name is its scope's prefix plus its title in upper case with spaces as underscores: "Gemini Prod" in `Work` is `WORK_GEMINI_PROD`. The name alone tells an agent which side a key belongs to, so a personal script cannot pick up a company key by accident. If two items map to the same name (say "API Key" and "API-Key"), every command stops and asks you to rename one rather than guess. In 1Password, tags nest under the scope (`Work/Gemini`), so the sidebar never mixes the two.
 
 `open-agent-keys add` puts a key in the first scope unless you pass `--scope`.
 
@@ -116,18 +116,18 @@ A key's name is its scope's prefix plus its title in upper case with spaces as u
 |---|---|
 | `open-agent-keys list [WORD]` | Names, tags and notes, filtered by WORD. Never values. |
 | `open-agent-keys run NAME[=SECRET]... -- CMD` | Runs CMD with only those secrets added to its environment. `NAME=SECRET` exposes secret SECRET as env var NAME. |
-| `open-agent-keys env FILE NAME[=SECRET]...` | Writes or replaces those lines in a dotenv file, mode 600. For tools that only read files. |
+| `open-agent-keys env FILE NAME[=SECRET]...` | Writes or replaces those lines in a dotenv file, mode 600, keeping `export` and single-quoting values with spaces or `$`. For tools that only read files. |
 | `open-agent-keys add "Title" --note TEXT [--scope S] [--tag T]...` | Creates a key from one line on stdin: `pbpaste \| open-agent-keys add "OpenAI Scripts" --note "…" --tag OpenAI`. |
 | `open-agent-keys note NAME TEXT` | Replaces a key's note. |
 | `open-agent-keys rm NAME` | Removes a key: 1Password moves it to the Archive, Bitwarden deletes it. |
 
-Agent sandboxes: `open-agent-keys` needs network access and read access to `~/.config/open-agent-keys`. It works when that directory is read-only; it just lists the store on every lookup instead of using its cache. Set `OPEN_AGENT_KEYS_CONFIG_DIR` to keep the config elsewhere.
+Agent sandboxes: `open-agent-keys` needs network access and read access to `~/.config/open-agent-keys`. It works when that directory is read-only, but then it cannot refresh its cache: a lookup the cache cannot answer lists the store again, and on 1Password also re-fetches every note, which costs one request per item against the quota. Set `OPEN_AGENT_KEYS_CONFIG_DIR` to keep the config elsewhere.
 
 ## What it does not protect against
 
 - A command that prints its own environment, or a script that logs the key. `open-agent-keys run` puts the value in the child's environment; what the child does with it is up to the child.
 - An agent that ignores its instructions and runs `open-agent-keys env` into a file it then reads. The instructions and the transcript make that visible, not impossible.
-- Anyone who can read `~/.config/open-agent-keys/token`: that token is the machine identity. Keep the file at mode 600, and revoke the service account or machine account if the machine is compromised.
+- An agent that reads the token file. The agent runs as you, and `open-agent-keys` needs that file, so the agent can read it and call `op` or `bws` directly. The instructions forbid it; the token's grant limits what it reaches. Keep the file at mode 600, and revoke the service account or machine account if the machine is compromised.
 
 What it does guarantee: the agent's credential sees only the scopes you granted, never your personal vault, and no value passes through `open-agent-keys`'s own output.
 
