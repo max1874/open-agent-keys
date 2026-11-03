@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""key: give AI agents API keys without putting the values in the transcript.
+
+Keys live in a password manager the agent can only partly see: a 1Password service account
+or a Bitwarden Secrets Manager machine account, limited to the vaults or projects listed as
+scopes in ~/.config/key/config.ini. Agents see names and notes; a value goes straight into the
+environment of the command that needs it.
+
+  key list [WORD]                    names, tags and notes; never values
+  key run NAME[=SECRET]... -- CMD    run CMD with only those secrets as env vars
+  key env FILE NAME[=SECRET]...      write/replace those lines in a dotenv file (mode 600)
+  key add "Title" --note TEXT [--scope SCOPE] [--tag TAG]...
+                                     create from stdin (e.g. `pbpaste | key add ...`)
+  key note NAME TEXT                 replace a key's note
+  key rm NAME                        remove a key (1Password archives it, Bitwarden deletes it)
+
+A key's NAME is its scope's prefix plus its title in upper case, spaces as underscores:
+"Gemini Prod" in a scope with prefix WORK_ is WORK_GEMINI_PROD.
+NAME=SECRET exposes secret SECRET under env name NAME, e.g.
+  key run OPENAI_API_KEY=OPENAI_SCRIPTS -- python3 script.py
+"""
+
+import argparse
+import configparser
+import json
+import os
+import re
+import subprocess
+import sys
+
+CONFIG_DIR = os.path.expanduser(os.environ.get("KEY_CONFIG_DIR", "~/.config/key"))
+# Names, tags and notes only, never values. `run` reads it before listing the store, and
+# 1Password fetches a note only when its item changed: service accounts have a request quota.
+CACHE_FILE = os.path.join(CONFIG_DIR, "cache.json")
+
+
+def die(msg):
+    print(f"key: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def fail(cli, r):
+    die(f"{cli} failed (tell the user; do not look for keys elsewhere): {r.stderr.strip()[:300]}")
+
+
+class Store:
+    """A password-manager CLI signed in with a token that sees only the configured scopes."""
+
+    cli = token_env = None
+    env = {}
+    tags = True
+
+    def __init__(self, token):
+        self.token = token
+
+    def call(self, *args, stdin=None):
+        try:
+            return subprocess.run([self.cli, *args], input=stdin, capture_output=True, text=True,
+                                  env={**os.environ, **self.env, self.token_env: self.token})
+        except FileNotFoundError:
+            die(f"`{self.cli}` is not installed; see the README")
+
+    def query(self, *args, stdin=None):
+        r = self.call(*args, stdin=stdin)
+        if r.returncode != 0:
+            fail(self.cli, r)
+        return json.loads(r.stdout) if r.stdout.strip() else None
+
+
+class OnePassword(Store):
+    cli, token_env = "op", "OP_SERVICE_ACCOUNT_TOKEN"
+    # No cache daemon: its socket lives outside the paths sandboxed agents may write.
+    env = {"OP_CACHE": "false"}
+
+    def items(self, vault):
+        return [{"id": i["id"], "title": i["title"], "tags": i.get("tags") or [], "updated_at": i["updated_at"]}
+                for i in self.query("item", "list", "--vault", vault, "--format", "json") or []]
+
+    def note(self, vault, item):
+        got = self.query("item", "get", item, "--vault", vault, "--fields", "label=notesPlain",
+                         "--format", "json") or {}
+        return got.get("value", "")
+
+    def read(self, vault, item):
+        # API Credential items keep the value in `credential`, Login items in `password`.
+        for field in ("credential", "password"):
+            r = self.call("read", "--no-newline", f"op://{vault}/{item}/{field}")
+            if r.returncode == 0:
+                return r.stdout
+            if "isn't an item" in r.stderr:
+                return None
+            if "does not have a field" not in r.stderr:
+                fail(self.cli, r)
+        die("the item has neither a `credential` nor a `password` field")
+
+    def create(self, vault, title, value, note, tags):
+        # The value goes in on stdin as a template, never as an argument other processes can see.
+        item = {"title": title, "category": "API_CREDENTIAL", "tags": tags, "fields": [
+            {"id": "credential", "type": "CONCEALED", "label": "credential", "value": value},
+            {"id": "notesPlain", "type": "STRING", "purpose": "NOTES", "label": "notesPlain", "value": note},
+        ]}
+        self.query("item", "create", "--vault", vault, "--format", "json", "-", stdin=json.dumps(item))
+
+    def set_note(self, vault, item, text):
+        # op echoes the edited item, values included; query() parses it and prints nothing.
+        self.query("item", "edit", item, "--vault", vault, "--format", "json", f"notesPlain={text}")
+
+    def remove(self, vault, item):
+        self.query("item", "delete", item, "--vault", vault, "--archive")
+
+
+class Bitwarden(Store):
+    cli, token_env = "bws", "BWS_ACCESS_TOKEN"
+    tags = False
+
+    def call(self, *args, stdin=None):
+        return super().call("--output", "json", *args, stdin=stdin)
+
+    def items(self, project):
+        # The listing carries values too; only these fields leave this method.
+        return [{"id": s["id"], "title": s["key"], "tags": [], "updated_at": s["revisionDate"],
+                 "note": s.get("note") or ""}
+                for s in self.query("secret", "list", project) or []]
+
+    def read(self, project, item):
+        r = self.call("secret", "get", item)
+        if r.returncode == 0:
+            return json.loads(r.stdout)["value"]
+        if "404" in r.stderr:
+            return None
+        fail(self.cli, r)
+
+    def create(self, project, title, value, note, tags):
+        # bws takes the value only as an argument, visible to `ps` for as long as bws runs.
+        self.query("secret", "create", "--note", note, "--", title, value, project)
+
+    def set_note(self, project, item, text):
+        self.query("secret", "edit", item, "--note", text)
+
+    def remove(self, project, item):
+        self.query("secret", "delete", item)
+
+
+STORES = {"1password": OnePassword, "bitwarden": Bitwarden}
+
+
+class Keys:
+    def __init__(self):
+        path = os.path.join(CONFIG_DIR, "config.ini")
+        cp = configparser.ConfigParser(interpolation=None)
+        if not cp.read(path):
+            die(f"no config at {path}; see the README")
+        kind = cp.get("key", "store", fallback="")
+        if kind not in STORES:
+            die(f"{path}: set `store` under [key] to one of: {', '.join(STORES)}")
+        self.scopes = {s[len("scope "):]: cp[s] for s in cp.sections() if s.startswith("scope ")}
+        if not self.scopes or not all(s.get("id") for s in self.scopes.values()):
+            die(f"{path}: add at least one [scope NAME] section with an id")
+        token_file = os.path.expanduser(cp.get("key", "token_file", fallback=os.path.join(CONFIG_DIR, "token")))
+        try:
+            token = open(token_file).read().strip()
+        except OSError as e:
+            die(f"cannot read {token_file}: {e.strerror}; tell the user, do not look for keys elsewhere")
+        if not token:
+            die(f"{token_file} is empty; tell the user")
+        self.store = STORES[kind](token)
+
+    def name(self, scope, title):
+        # The scope is the only routing rule, so a task in one scope cannot pick up another's key by accident.
+        prefix = self.scopes[scope].get("prefix", "").upper()
+        base = re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_").upper()
+        return base if base.startswith(prefix) else prefix + base
+
+    def by_name(self, entries):
+        return {self.name(e["scope"], e["title"]): {**e, "id": i}
+                for i, e in entries.items() if e.get("scope") in self.scopes}
+
+    def cached(self):
+        try:
+            return self.by_name(json.load(open(CACHE_FILE)))
+        except (OSError, ValueError, KeyError):
+            return {}
+
+    def index(self):
+        old = {e["id"]: e for e in self.cached().values()}
+        fresh = {}
+        for scope, conf in self.scopes.items():
+            for item in self.store.items(conf["id"]):
+                i = item.pop("id")
+                prev = old.get(i)
+                if "note" not in item:
+                    same = prev and prev["updated_at"] == item["updated_at"]
+                    item["note"] = prev["note"] if same else self.store.note(conf["id"], i)
+                fresh[i] = {**item, "scope": scope}
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            with open(CACHE_FILE, "w") as f:
+                json.dump(fresh, f)
+        except OSError:
+            pass  # config dir not writable (some agent sandboxes): the next run lists again
+        return self.by_name(fresh)
+
+    def entry(self, name):
+        return self.index().get(name) or die(f"no secret named {name}; see `key list`")
+
+    def read(self, name):
+        for lookup in (self.cached, self.index):
+            e = lookup().get(name)
+            value = e and self.store.read(self.scopes[e["scope"]]["id"], e["id"])
+            if value is not None:
+                return value
+        die(f"no secret named {name}; see `key list`")
+
+    def pick(self, specs):
+        out = {}
+        for spec in specs:
+            name, _, secret = spec.partition("=")
+            out[name] = self.read(secret or name)
+        return out
+
+
+def cmd_list(keys, args):
+    word = (args[0] if args else "").lower()
+    for k, e in sorted(keys.index().items()):
+        tags = ",".join(e["tags"])
+        if word in f"{k} {e['title']} {tags} {e['note']}".lower():
+            print(f"{k}\t[{tags}]\t{e['note']}")
+
+
+def cmd_run(keys, args):
+    if "--" not in args:
+        die("usage: key run NAME[=SECRET]... -- CMD")
+    i = args.index("--")
+    specs, cmd = args[:i], args[i + 1:]
+    if not specs or not cmd:
+        die("usage: key run NAME[=SECRET]... -- CMD")
+    os.execvpe(cmd[0], cmd, {**os.environ, **keys.pick(specs)})
+
+
+def cmd_env(keys, args):
+    if len(args) < 2:
+        die("usage: key env FILE NAME[=SECRET]...")
+    path, values = args[0], keys.pick(args[1:])
+    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    done = set()
+    for n, line in enumerate(lines):
+        m = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+        if m and m.group(1) in values:
+            lines[n] = f"{m.group(1)}={values[m.group(1)]}"
+            done.add(m.group(1))
+    lines += [f"{k}={v}" for k, v in values.items() if k not in done]
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(path, 0o600)
+    print(f"wrote {', '.join(values)} to {path}")
+
+
+def cmd_add(keys, args):
+    p = argparse.ArgumentParser(prog="key add")
+    p.add_argument("title")
+    p.add_argument("--note", required=True)
+    p.add_argument("--scope", choices=list(keys.scopes), default=next(iter(keys.scopes)))
+    p.add_argument("--tag", action="append", default=[])
+    a = p.parse_args(args)
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 ]*", a.title) or a.title != a.title.strip():
+        die('title must be words of letters and digits, e.g. "OpenAI Scripts"')
+    if a.tag and not keys.store.tags:
+        die(f"{keys.store.cli} has no tags; leave out --tag")
+    name = keys.name(a.scope, a.title)
+    if name in keys.index():
+        die(f"{name} already exists; pick another title")
+    value = sys.stdin.read().strip()
+    if not value or "\n" in value:
+        die("expected exactly one non-empty line on stdin")
+    # 1Password nests tags at "/", so each scope's tags group under it and never mix with another's.
+    tags = [t if t.startswith(a.scope + "/") else f"{a.scope}/{t}" for t in a.tag]
+    keys.store.create(keys.scopes[a.scope]["id"], a.title, value, a.note, tags)
+    print(f"added {a.title} as {name}")
+
+
+def cmd_note(keys, args):
+    if len(args) != 2:
+        die("usage: key note NAME TEXT")
+    e = keys.entry(args[0])
+    keys.store.set_note(keys.scopes[e["scope"]]["id"], e["id"], args[1])
+    keys.index()
+    print(f"updated note of {args[0]}")
+
+
+def cmd_rm(keys, args):
+    if len(args) != 1:
+        die("usage: key rm NAME")
+    e = keys.entry(args[0])
+    keys.store.remove(keys.scopes[e["scope"]]["id"], e["id"])
+    keys.index()
+    print(f"removed {args[0]}")
+
+
+def main():
+    cmds = {"list": cmd_list, "run": cmd_run, "env": cmd_env, "add": cmd_add, "note": cmd_note, "rm": cmd_rm}
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+    if sys.argv[1] not in cmds:
+        die(f"unknown command {sys.argv[1]}; see `key --help`")
+    cmds[sys.argv[1]](Keys(), sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()
