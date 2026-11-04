@@ -61,9 +61,9 @@ You can also clone this repository and symlink `open-agent-keys` onto your `PATH
 3. Save its token and look up the vault ID:
 
    ```sh
-   mkdir -p ~/.config/open-agent-keys && chmod 700 ~/.config/open-agent-keys
-   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token
-   OP_SERVICE_ACCOUNT_TOKEN=$(cat ~/.config/open-agent-keys/token) op vault list
+   mkdir -p -m 700 ~/.config/open-agent-keys && cd ~/.config/open-agent-keys
+   pbpaste > token && chmod 600 token
+   OP_SERVICE_ACCOUNT_TOKEN=$(cat token) op vault list
    ```
 
 4. Write `~/.config/open-agent-keys/config.ini`:
@@ -88,9 +88,9 @@ Each key is an API Credential item: the value goes in `credential` and the note 
 3. Install [`bws`](https://bitwarden.com/help/secrets-manager-cli/), save the token and look up the project ID:
 
    ```sh
-   mkdir -p ~/.config/open-agent-keys && chmod 700 ~/.config/open-agent-keys
-   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token
-   BWS_ACCESS_TOKEN=$(cat ~/.config/open-agent-keys/token) bws project list
+   mkdir -p -m 700 ~/.config/open-agent-keys && cd ~/.config/open-agent-keys
+   pbpaste > token && chmod 600 token
+   BWS_ACCESS_TOKEN=$(cat token) bws project list
    ```
 
 4. Write `~/.config/open-agent-keys/config.ini`:
@@ -115,20 +115,21 @@ On Linux, use `wl-paste` or `xclip -o` in place of `pbpaste`.
 
 ```sh
 pbpaste | open-agent-keys add "OpenAI Scripts" --tag OpenAI \
-  --note "Scripts and evals; created at platform.openai.com, project scripts"
+  --note "Scripts and evals; platform.openai.com, project scripts"
 ```
 
 ## Commands
 
-```text
-open-agent-keys list [WORD]                    names, tags and notes; never values
-open-agent-keys run NAME[=SECRET]... -- CMD    run CMD with only those secrets as env vars
-open-agent-keys env FILE NAME[=SECRET]...      write those lines into a dotenv file (mode 600)
-open-agent-keys add "Title" --note TEXT [--scope S] [--tag T]...
-                                               create a key from one line on stdin
-open-agent-keys note NAME TEXT                 replace a key's note
-open-agent-keys rm NAME                        remove a key
-```
+Each is a subcommand of `open-agent-keys`:
+
+- `list [WORD]`: names, tags and notes, filtered by WORD; never values
+- `run NAME[=SECRET]... -- CMD`: run CMD with only those secrets as env vars
+- `env FILE NAME[=SECRET]...`: write those lines into a dotenv file (mode 600)
+- `add "Title" --note TEXT [--scope S] [--tag T]...`: create a key from one line on stdin
+- `note NAME TEXT`: replace a key's note
+- `rm NAME`: remove a key
+
+Details:
 
 - **Renaming.** `NAME=SECRET` exposes secret SECRET under env name NAME: `run OPENAI_API_KEY=OPENAI_SCRIPTS -- …`.
 - **`env` output.** `env` keeps `export` prefixes and single-quotes values with spaces or `$`. It refuses values containing quotes or line breaks; use `run` for those.
