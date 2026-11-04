@@ -1,48 +1,67 @@
-# open-agent-keys
+# open-agent-keys 🔑
 
-`open-agent-keys` gives AI coding agents (Claude Code, Codex, Cursor, …) the API keys they need without the values ever entering the conversation.
+Give AI coding agents the API keys they need, without the values ever entering the conversation.
 
-```console
-$ open-agent-keys list openai
-OPENAI_SCRIPTS	[Personal/OpenAI]	Scripts and evals; created at platform.openai.com, project "scripts"
-$ open-agent-keys run OPENAI_API_KEY=OPENAI_SCRIPTS -- python3 eval.py
-```
+<img src="docs/demo.svg" width="860" alt="An agent lists keys by name and note, runs eval.py with OPENAI_SCRIPTS, and reports the result; the key's value appears nowhere">
 
-The agent sees names and notes. The value goes from your password manager straight into the environment of the one command that needs it, so it is not in the transcript, the model provider's logs, your shell history, or a `.env` file the agent wrote somewhere.
+The agent sees **names and notes**. The value goes from your password manager straight into the environment of the one command that needs it, so it never lands in the transcript, the model provider's logs, your shell history, or a stray `.env` file.
 
-Stores: **1Password** (service accounts) and **Bitwarden Secrets Manager** (machine accounts). One Python file, standard library only, Python 3.9+.
+Works with **1Password** service accounts and **Bitwarden Secrets Manager** machine accounts, and with any agent that can run a shell command: Claude Code, Codex, Cursor, Aider and the rest. It is one Python file that uses only the standard library and needs Python 3.9 or later.
 
 ## Why
 
-An agent that needs a key usually gets it one of three ways, and each leaks:
+An agent that needs a key usually gets it one of three ways, and each one leaks:
 
-- **Pasted into the chat.** The value now lives in the transcript, on disk and at the model provider.
-- **Read from `.env` files.** Copies spread across repositories, and an agent looking for a key learns to grep your disk for one.
-- **Your password manager's CLI, signed in as you.** The agent can read every password you own.
+| How the agent gets the key | What goes wrong |
+|---|---|
+| You paste it into the chat | The value lives on in the transcript, on disk and at the model provider |
+| It reads `.env` files | Copies spread across repositories, and the agent learns to grep your disk for keys |
+| Your password manager's CLI, signed in as you | The agent can read every password you own |
 
-`open-agent-keys` closes all three. It signs in as a separate machine identity that can see only the vaults or projects you give it, it never prints a value, and when it fails it tells the agent to stop and report instead of searching elsewhere.
+`open-agent-keys` closes all three:
 
-## Setup
+- **Separate identity.** It signs in as a machine identity that sees only the vaults or projects you grant it.
+- **No values in its output.** It never prints a value.
+- **Stops on failure.** When something fails, it tells the agent to stop and report instead of searching elsewhere.
 
-### 1. Install
+## How it works
 
-```sh
-mkdir -p ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/open-agent-keys -o ~/.local/bin/open-agent-keys
-chmod +x ~/.local/bin/open-agent-keys
+```mermaid
+flowchart LR
+    agent["🤖 Agent"] -- "list · run NAME" --> oak["open-agent-keys"]
+    oak -- "scoped token" --> granted[("Agents vault<br/>Work vault")]
+    oak -- "value, as an env var" --> cmd["python3 eval.py"]
+    oak -. "no access" .-x personal[("Your personal vault")]
 ```
 
-or clone this repository and symlink `open-agent-keys` onto your `PATH`. You also need your store's CLI: `op` for 1Password, `bws` for Bitwarden.
+- **Scopes.** Each vault or project you list in the config is a scope. A scope can carry a name prefix, so `WORK_GEMINI` can only be a company key.
+- **Names.** A key's name comes from its title: "OpenAI Scripts" becomes `OPENAI_SCRIPTS`. Agents find keys with `list` and pick by note.
+- **Values.** `run` puts the value in a child process's environment. `env` writes it to a mode-600 dotenv file for tools that only read files.
+- **Cache.** Names and notes (never values) are cached, so a 1Password service account's request quota goes on reads that matter.
 
-### 2a. 1Password
+## Quick start
+
+**1. Install** the script, plus your store's CLI (`op` or `bws`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/open-agent-keys \
+  -o ~/.local/bin/open-agent-keys && chmod +x ~/.local/bin/open-agent-keys
+```
+
+You can also clone this repository and symlink `open-agent-keys` onto your `PATH`.
+
+**2. Connect a store.** Expand yours:
+
+<details>
+<summary><b>1Password</b>: service account</summary>
 
 1. Create a vault for agent keys, e.g. `Agents`. Keep personal passwords out of it.
 2. Create a [service account](https://developer.1password.com/docs/service-accounts/get-started/) with read and write access to that vault only.
-3. Save its token and find the vault ID:
+3. Save its token and look up the vault ID:
 
    ```sh
    mkdir -p ~/.config/open-agent-keys && chmod 700 ~/.config/open-agent-keys
-   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token   # the service account token (Linux: wl-paste or xclip -o)
+   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token
    OP_SERVICE_ACCOUNT_TOKEN=$(cat ~/.config/open-agent-keys/token) op vault list
    ```
 
@@ -56,17 +75,20 @@ or clone this repository and symlink `open-agent-keys` onto your `PATH`. You als
    id = <vault id>
    ```
 
-Keys are API Credential items: the value in `credential`, the note in the item's notes. Login items work too (their `password` is the value). Service accounts have a request quota (`op service-account ratelimit`), so `open-agent-keys` caches names and notes and fetches a note only when its item changed.
+Each key is an API Credential item: the value goes in `credential` and the note in the item's notes. Login items work too, with `password` as the value.
 
-### 2b. Bitwarden Secrets Manager
+</details>
 
-1. In the Bitwarden web app, turn on Secrets Manager for your organization (the free plan is enough for one person) and create a project, e.g. `agents`.
-2. Create a machine account, give it read and write access to that project only, and create an access token for it.
-3. Install [`bws`](https://bitwarden.com/help/secrets-manager-cli/), save the token and find the project ID:
+<details>
+<summary><b>Bitwarden Secrets Manager</b>: machine account</summary>
+
+1. In the Bitwarden web app, turn on Secrets Manager for an organization and create a project, e.g. `agents`. The free plan is enough for one person.
+2. Create a machine account with read and write access to that project only, then create an access token for it.
+3. Install [`bws`](https://bitwarden.com/help/secrets-manager-cli/), save the token and look up the project ID:
 
    ```sh
    mkdir -p ~/.config/open-agent-keys && chmod 700 ~/.config/open-agent-keys
-   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token   # the access token (Linux: wl-paste or xclip -o)
+   pbpaste > ~/.config/open-agent-keys/token && chmod 600 ~/.config/open-agent-keys/token
    BWS_ACCESS_TOKEN=$(cat ~/.config/open-agent-keys/token) bws project list
    ```
 
@@ -80,23 +102,40 @@ Keys are API Credential items: the value in `credential`, the note in the item's
    id = <project id>
    ```
 
-Differences from 1Password: secrets have no tags, `open-agent-keys rm` deletes for good (there is no archive), and `bws` takes a new value as a command-line argument, so `open-agent-keys add` exposes it to `ps` for as long as `bws` runs. For EU or self-hosted servers, set `BWS_SERVER_URL` in your environment.
+For EU or self-hosted servers, set `BWS_SERVER_URL` in your environment.
 
-Bitwarden's regular password manager CLI (`bw`) is deliberately not supported: it unlocks with your master password and then sees your whole vault, which is exactly what `open-agent-keys` exists to prevent.
+</details>
 
-### 3. Tell your agents
+On Linux, use `wl-paste` or `xclip -o` in place of `pbpaste`.
 
-Copy [`AGENTS.snippet.md`](AGENTS.snippet.md) into your global agent instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, …). The tool keeps values out of the transcript; the instructions keep the agent from going around it.
+**3. Tell your agents.** Copy [`AGENTS.snippet.md`](AGENTS.snippet.md) into your global agent instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, …). The tool keeps values out of the transcript; the instructions keep the agent from going around the tool.
+
+**4. Add a key:**
+
+```sh
+pbpaste | open-agent-keys add "OpenAI Scripts" --tag OpenAI \
+  --note "Scripts and evals; created at platform.openai.com, project scripts"
+```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `list [WORD]` | Names, tags and notes, filtered by WORD. Never values. |
+| `run NAME[=SECRET]... -- CMD` | Runs CMD with only those secrets added to its environment. `NAME=SECRET` exposes secret SECRET as env var NAME. |
+| `env FILE NAME[=SECRET]...` | Writes or replaces those lines in a dotenv file at mode 600. It keeps `export` prefixes and single-quotes values that contain spaces or `$`. |
+| `add "Title" --note TEXT [--scope S] [--tag T]...` | Creates a key from one line on stdin, in the first scope unless `--scope` says otherwise. |
+| `note NAME TEXT` | Replaces a key's note. |
+| `rm NAME` | Removes a key. |
 
 ## Scopes
 
-A scope is one vault (1Password) or project (Bitwarden). List several to keep keys apart, for instance your own and your employer's:
+List several scopes to keep keys apart, for instance your own and your employer's:
 
 ```ini
 [store]
 type = 1password
-; the default token file
-token_file = ~/.config/open-agent-keys/token
+; token_file defaults to ~/.config/open-agent-keys/token
 
 [scope Personal]
 id = <vault id>
@@ -106,31 +145,60 @@ id = <vault id>
 prefix = WORK_
 ```
 
-A key's name is its scope's prefix plus its title in upper case with spaces as underscores: "Gemini Prod" in `Work` is `WORK_GEMINI_PROD`. The name alone tells an agent which side a key belongs to, so a personal script cannot pick up a company key by accident. If two items map to the same name (say "API Key" and "API-Key"), every command stops and asks you to rename one rather than guess. In 1Password, tags nest under the scope (`Work/Gemini`), so the sidebar never mixes the two.
+- **Names show the scope.** A key's name is its scope's prefix plus its title in upper case, with spaces as underscores: "Gemini Prod" in `Work` is `WORK_GEMINI_PROD`. The name alone tells an agent which side a key belongs to, so a personal script cannot pick up a company key by accident.
+- **No guessing on clashes.** If two items map to the same name (say "API Key" and "API-Key"), every command stops and asks you to rename one.
+- **Tags stay grouped (1Password).** Tags nest under the scope (`Work/Gemini`), so the 1Password sidebar never mixes the two.
 
-`open-agent-keys add` puts a key in the first scope unless you pass `--scope`.
+## 1Password and Bitwarden compared
 
-## Commands
+| | 1Password | Bitwarden Secrets Manager |
+|---|---|---|
+| Machine identity | Service account | Machine account |
+| Scope | Vault | Project |
+| Tags | Yes, nested under the scope | No |
+| `rm` | Moves to Archive (restorable) | Deletes permanently |
+| `add` passes the value | On stdin | As a `bws` argument, visible to `ps` while `bws` runs |
+| Request quota | Yes, daily (`op service-account ratelimit`) | No |
 
-| Command | What it does |
-|---|---|
-| `open-agent-keys list [WORD]` | Names, tags and notes, filtered by WORD. Never values. |
-| `open-agent-keys run NAME[=SECRET]... -- CMD` | Runs CMD with only those secrets added to its environment. `NAME=SECRET` exposes secret SECRET as env var NAME. |
-| `open-agent-keys env FILE NAME[=SECRET]...` | Writes or replaces those lines in a dotenv file, mode 600, keeping `export` and single-quoting values with spaces or `$`. For tools that only read files. |
-| `open-agent-keys add "Title" --note TEXT [--scope S] [--tag T]...` | Creates a key from one line on stdin: `pbpaste \| open-agent-keys add "OpenAI Scripts" --note "…" --tag OpenAI`. |
-| `open-agent-keys note NAME TEXT` | Replaces a key's note. |
-| `open-agent-keys rm NAME` | Removes a key: 1Password moves it to the Archive, Bitwarden deletes it. |
+Bitwarden's regular password manager CLI (`bw`) is not supported, on purpose. It unlocks with your master password and then sees your whole vault, which is exactly what `open-agent-keys` exists to prevent.
 
-Agent sandboxes: `open-agent-keys` needs network access and read access to `~/.config/open-agent-keys`. It works when that directory is read-only, but then it cannot refresh its cache: a lookup the cache cannot answer lists the store again, and on 1Password also re-fetches every note, which costs one request per item against the quota. Set `OPEN_AGENT_KEYS_CONFIG_DIR` to keep the config elsewhere.
+## Security model
 
-## What it does not protect against
+**It guarantees:**
 
-- A command that prints its own environment, or a script that logs the key. `open-agent-keys run` puts the value in the child's environment; what the child does with it is up to the child.
-- An agent that ignores its instructions and runs `open-agent-keys env` into a file it then reads. The instructions and the transcript make that visible, not impossible.
-- An agent that reads the token file. The agent runs as you, and `open-agent-keys` needs that file, so the agent can read it and call `op` or `bws` directly. The instructions forbid it; the token's grant limits what it reaches. Keep the file at mode 600, and revoke the service account or machine account if the machine is compromised.
+- The agent's credential sees only the scopes you granted, never your personal vault.
+- No value passes through `open-agent-keys`'s own output or its cache.
 
-What it does guarantee: the agent's credential sees only the scopes you granted, never your personal vault, and no value passes through `open-agent-keys`'s own output.
+**It does not protect against:**
+
+- **A child command that prints or logs its environment.** `run` hands the value to the child; what the child does with it is up to the child.
+- **An agent that reads the token file.** The agent runs as you, and `open-agent-keys` needs that file, so the agent can read it and call `op` or `bws` directly. The instructions forbid it, and the token's grant limits what it reaches. Keep the file at mode 600, and revoke the service account or machine account if the machine is compromised.
+- **An agent that ignores its instructions** and runs `env` into a file it then reads. The instructions and the transcript make that visible, not impossible.
+
+## FAQ
+
+<details>
+<summary><b>Why not just <code>op run</code> or <code>bws run</code>?</b></summary>
+
+If you use one store and are happy writing `op://` references, a service account with `op run` gets you most of the way. `open-agent-keys` adds what agents need on top:
+
+- one interface across both stores
+- keys an agent can find by name and note
+- scope prefixes that keep work and personal keys apart
+- a fixed rule for what to do on failure
+- a cache that keeps 1Password's request quota for reads that matter
+
+</details>
+
+<details>
+<summary><b>Does it work inside agent sandboxes?</b></summary>
+
+Yes, as long as the sandbox allows network access and lets the agent read `~/.config/open-agent-keys`. Set `OPEN_AGENT_KEYS_CONFIG_DIR` to keep the config somewhere else.
+
+If that directory is read-only, the cache cannot be refreshed. A lookup the cache cannot answer then lists the store again, and on 1Password it also re-fetches every note, which costs one request per item against the quota.
+
+</details>
 
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="388" viewBox="0 0 860 388" role="img" aria-label="An agent lists keys by name, runs a script with one of them, and the value never appears">
+  <style>
+    text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #e6edf3; white-space: pre; }
+    .dim { fill: #7d8590; }
+    .you { fill: #f0b37e; }
+    .tool { fill: #79c0ff; }
+    .name { fill: #7ee787; }
+    .work { fill: #d2a8ff; }
+    .ok { fill: #7ee787; }
+    .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; fill: #7d8590; }
+  </style>
+  <rect width="860" height="388" rx="12" fill="#0d1117"/>
+  <rect x="0.5" y="0.5" width="859" height="387" rx="11.5" fill="none" stroke="#30363d"/>
+  <circle cx="24" cy="22" r="6" fill="#ff5f57"/>
+  <circle cx="44" cy="22" r="6" fill="#febc2e"/>
+  <circle cx="64" cy="22" r="6" fill="#28c840"/>
+  <text class="title" x="430" y="26" text-anchor="middle">agent session — ~/projects/evals</text>
+  <line x1="0" y1="44" x2="860" y2="44" stroke="#21262d"/>
+
+  <text x="28" y="80"><tspan class="you">you  </tspan>Run the evals with my OpenAI key.</text>
+
+  <text x="28" y="122"><tspan class="tool">●</tspan> open-agent-keys list openai</text>
+  <text x="28" y="146"><tspan class="dim">  </tspan><tspan class="name">OPENAI_SCRIPTS</tspan><tspan class="dim">   [Personal/OpenAI]  Scripts and evals; platform.openai.com</tspan></text>
+  <text x="28" y="168"><tspan class="dim">  </tspan><tspan class="work">WORK_OPENAI</tspan><tspan class="dim">      [Work/OpenAI]      Company account; work projects only</tspan></text>
+
+  <text x="28" y="210"><tspan class="tool">●</tspan> open-agent-keys run OPENAI_API_KEY=<tspan class="name">OPENAI_SCRIPTS</tspan> -- python3 eval.py</text>
+  <text x="28" y="234"><tspan class="dim">  eval: 48/50 passed</tspan></text>
+
+  <text x="28" y="276"><tspan class="tool">●</tspan> Done: 48 of 50 passed. I used your personal key, OPENAI_SCRIPTS;</text>
+  <text x="28" y="298">  the company key is for work projects only.</text>
+
+  <line x1="28" y1="330" x2="832" y2="330" stroke="#21262d"/>
+  <text x="28" y="360" class="dim">The key's value went from the vault into eval.py's environment. It is nowhere above.</text>
+</svg>
