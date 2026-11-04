@@ -29,9 +29,9 @@ An agent that needs a key usually gets it one of three ways, and each one leaks:
 ```mermaid
 flowchart LR
     agent["🤖 Agent"] -- "list · run NAME" --> oak["open-agent-keys"]
-    oak -- "scoped token" --> granted[("Agents vault<br/>Work vault")]
+    oak -- "scoped token" --> granted[("Vaults or projects<br/>you granted")]
     oak -- "value, as an env var" --> cmd["python3 eval.py"]
-    oak -. "no access" .-x personal[("Your personal vault")]
+    oak -. "no access" .-x personal[("Everything else<br/>you store")]
 ```
 
 - **Scopes.** Each vault or project you list in the config is a scope. A scope can carry a name prefix, so `WORK_GEMINI` can only be a company key.
@@ -44,8 +44,9 @@ flowchart LR
 **1. Install** the script, plus your store's CLI (`op` or `bws`):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/open-agent-keys \
-  -o ~/.local/bin/open-agent-keys && chmod +x ~/.local/bin/open-agent-keys
+curl -fsSL -o ~/.local/bin/open-agent-keys \
+  https://raw.githubusercontent.com/max1874/open-agent-keys/main/open-agent-keys
+chmod +x ~/.local/bin/open-agent-keys
 ```
 
 You can also clone this repository and symlink `open-agent-keys` onto your `PATH`.
@@ -119,14 +120,19 @@ pbpaste | open-agent-keys add "OpenAI Scripts" --tag OpenAI \
 
 ## Commands
 
-| Command | What it does |
-|---|---|
-| `list [WORD]` | Names, tags and notes, filtered by WORD. Never values. |
-| `run NAME[=SECRET]... -- CMD` | Runs CMD with only those secrets added to its environment. `NAME=SECRET` exposes secret SECRET as env var NAME. |
-| `env FILE NAME[=SECRET]...` | Writes or replaces those lines in a dotenv file at mode 600. It keeps `export` prefixes and single-quotes values that contain spaces or `$`. |
-| `add "Title" --note TEXT [--scope S] [--tag T]...` | Creates a key from one line on stdin, in the first scope unless `--scope` says otherwise. |
-| `note NAME TEXT` | Replaces a key's note. |
-| `rm NAME` | Removes a key. |
+```text
+open-agent-keys list [WORD]                    names, tags and notes; never values
+open-agent-keys run NAME[=SECRET]... -- CMD    run CMD with only those secrets as env vars
+open-agent-keys env FILE NAME[=SECRET]...      write those lines into a dotenv file (mode 600)
+open-agent-keys add "Title" --note TEXT [--scope S] [--tag T]...
+                                               create a key from one line on stdin
+open-agent-keys note NAME TEXT                 replace a key's note
+open-agent-keys rm NAME                        remove a key
+```
+
+- **Renaming.** `NAME=SECRET` exposes secret SECRET under env name NAME: `run OPENAI_API_KEY=OPENAI_SCRIPTS -- …`.
+- **`env` output.** `env` keeps `export` prefixes and single-quotes values with spaces or `$`. It refuses values containing quotes or line breaks; use `run` for those.
+- **Where `add` goes.** `add` uses the first scope unless `--scope` says otherwise.
 
 ## Scopes
 
@@ -158,7 +164,7 @@ prefix = WORK_
 | Tags | Yes, nested under the scope | No |
 | `rm` | Moves to Archive (restorable) | Deletes permanently |
 | `add` passes the value | On stdin | As a `bws` argument, visible to `ps` while `bws` runs |
-| Request quota | Yes, daily (`op service-account ratelimit`) | No |
+| Request quota | Daily, per account (`op service-account ratelimit`) | General API rate limits only |
 
 Bitwarden's regular password manager CLI (`bw`) is not supported, on purpose. It unlocks with your master password and then sees your whole vault, which is exactly what `open-agent-keys` exists to prevent.
 
