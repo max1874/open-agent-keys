@@ -1,0 +1,18 @@
+[package]
+name = "open-agent-keys"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Give AI agents API keys from 1Password or Bitwarden without putting values in the transcript"
+license = "MIT"
+repository = "https://github.com/max1874/open-agent-keys"
+keywords = ["ai-agents", "secrets", "1password", "bitwarden", "cli"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -6,7 +6,7 @@ Give AI coding agents the API keys they need, without the values ever entering t
 
 The agent sees **names and notes**. The value goes from your password manager straight into the environment of the one command that needs it, so it never lands in the transcript, the model provider's logs, your shell history, or a stray `.env` file.
 
-Works with **1Password** service accounts and **Bitwarden Secrets Manager** machine accounts, and with any agent that can run a shell command: Claude Code, Codex, Cursor, Aider and the rest. It is one Python file that uses only the standard library and needs Python 3.9 or later.
+Works with **1Password** service accounts and **Bitwarden Secrets Manager** machine accounts, and with any agent that can run a shell command: Claude Code, Codex, Cursor, Aider and the rest. It is a single Rust binary with nothing to install at run time; its only dependency is `serde_json`.
 
 ## Why
 
@@ -41,15 +41,13 @@ flowchart LR
 
 ## Quick start
 
-**1. Install** the script, plus your store's CLI (`op` or `bws`):
+**1. Install** it, plus your store's CLI (`op` or `bws`). With a [Rust toolchain](https://rustup.rs):
 
 ```sh
-curl -fsSL -o ~/.local/bin/open-agent-keys \
-  https://raw.githubusercontent.com/max1874/open-agent-keys/main/open-agent-keys
-chmod +x ~/.local/bin/open-agent-keys
+cargo install --git https://github.com/max1874/open-agent-keys
 ```
 
-You can also clone this repository and symlink `open-agent-keys` onto your `PATH`.
+That puts `open-agent-keys` in `~/.cargo/bin`. To build from a clone instead, run `cargo install --path .` in it.
 
 **2. Connect a store.** Expand yours:
 
