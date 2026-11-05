@@ -1,0 +1,48 @@
+name: release
+
+# A v* tag builds open-agent-keys for macOS and Linux and attaches the binaries to a GitHub release.
+# Asset names follow `uname -s`-`uname -m`, so the README's one-line install picks the right one.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { runner: macos-latest, target: aarch64-apple-darwin, asset: Darwin-arm64 }
+          - { runner: macos-latest, target: x86_64-apple-darwin, asset: Darwin-x86_64 }
+          # musl: static binaries that run on any Linux, whatever its glibc.
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-musl, asset: Linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, asset: Linux-aarch64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          name=open-agent-keys-${{ matrix.asset }}
+          tar -czf "$name.tar.gz" -C target/${{ matrix.target }}/release open-agent-keys
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: open-agent-keys-${{ matrix.asset }}.tar.gz*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes open-agent-keys-*
+        env:
+          GH_TOKEN: ${{ github.token }}

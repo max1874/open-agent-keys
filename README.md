@@ -41,13 +41,15 @@ flowchart LR
 
 ## Quick start
 
-**1. Install** it, plus your store's CLI (`op` or `bws`). With a [Rust toolchain](https://rustup.rs):
+**1. Install** it (macOS on Apple silicon or Intel, Linux on x86_64 or ARM64), plus your store's CLI (`op` or `bws`):
 
 ```sh
-cargo install --git https://github.com/max1874/open-agent-keys
+mkdir -p ~/.local/bin && curl -fsSL "https://github.com/max1874/open-agent-keys/\
+releases/latest/download/open-agent-keys-$(uname -s)-$(uname -m).tar.gz" \
+  | tar -xz -C ~/.local/bin
 ```
 
-That puts `open-agent-keys` in `~/.cargo/bin`. To build from a clone instead, run `cargo install --path .` in it.
+Every download has a `.sha256` file beside it in the release. With a Rust toolchain you can build it instead: `cargo install --git https://github.com/max1874/open-agent-keys`.
 
 **2. Connect a store.** Expand yours:
 
