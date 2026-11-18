@@ -47,7 +47,7 @@ flowchart LR
 curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/install.sh | sh
 ```
 
-[`install.sh`](install.sh) takes the latest release: it checks the binary against its `.sha256`, puts it in `~/.local/bin`, and puts [the skill](skills/open-agent-keys/SKILL.md) from the same release into `~/.claude/skills` and `~/.codex/skills` when they exist. Rerun it to update; `open-agent-keys --version` shows what you have, and `| sh -s -- v0.3.0` installs a given release. With a Rust toolchain you can build it instead: `cargo install --git https://github.com/max1874/open-agent-keys`.
+[`install.sh`](install.sh) takes the latest release: it checks the binary against its `.sha256`, puts it in `~/.local/bin`, and puts [the skill](skills/open-agent-keys/SKILL.md) from the same release into `~/.claude/skills` (Claude Code) and `~/.agents/skills` (Codex and other agents) when they exist. Rerun it to update; `open-agent-keys --version` shows what you have, and `| sh -s -- v0.3.0` installs a given release. With a Rust toolchain you can build it instead: `cargo install --git https://github.com/max1874/open-agent-keys`.
 
 **2. Connect a store.** Expand yours:
 

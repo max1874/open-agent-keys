@@ -5,8 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/install.sh | sh -s -- v0.3.0
 #
-# BIN_DIR (default ~/.local/bin) and SKILL_DIRS (default ~/.claude/skills and ~/.codex/skills,
-# whichever exist) change where it goes. A skill directory that is a link, such as one pointing
+# BIN_DIR (default ~/.local/bin) and SKILL_DIRS (default ~/.claude/skills for Claude Code and ~/.agents/skills,
+# which Codex reads, whichever exist) change where it goes. A skill directory that is a link, such as one pointing
 # into a clone of this repository, is left alone. Releases from v0.3.0 on.
 set -eu
 
@@ -31,7 +31,7 @@ cp open-agent-keys "$bin/.open-agent-keys.new"
 mv -f "$bin/.open-agent-keys.new" "$bin/open-agent-keys"
 echo "binary: $bin/open-agent-keys"
 
-for dir in ${SKILL_DIRS:-"$HOME/.claude/skills" "$HOME/.codex/skills"}; do
+for dir in ${SKILL_DIRS:-"$HOME/.claude/skills" "$HOME/.agents/skills"}; do
   [ -d "$dir" ] || continue
   if [ -L "$dir/open-agent-keys" ]; then
     echo "skill: $dir/open-agent-keys is a link, left as is"
