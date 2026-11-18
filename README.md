@@ -109,7 +109,7 @@ On Linux, use `wl-paste` or `xclip -o` in place of `pbpaste`.
 
 **3. Tell your agents.** Copy [`AGENTS.snippet.md`](AGENTS.snippet.md) into your global agent instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, …). The tool keeps values out of the transcript; the instructions keep the agent from going around the tool.
 
-The skill that `install.sh` put in place teaches the commands and makes `/open-agent-keys` (or `@` in Codex) available. Keep both. A skill loads only when the agent reaches for it, so the snippet is what stops an agent from going around the tool when it never thought to use it. `install.sh` copies `SKILL.md` rather than linking it, because Claude Code and Codex skip a skill whose `SKILL.md` is a symlink.
+The skill that `install.sh` put in place carries the rules, sends the agent to `open-agent-keys --help` for the commands (so they always match the installed version), and makes `/open-agent-keys` (or `@` in Codex) available. Keep both. A skill loads only when the agent reaches for it, so the snippet is what stops an agent from going around the tool when it never thought to use it. `install.sh` copies `SKILL.md` rather than linking it, because Claude Code and Codex skip a skill whose `SKILL.md` is a symlink.
 
 **4. Add a key:**
 
