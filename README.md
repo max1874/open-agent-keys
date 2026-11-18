@@ -111,12 +111,12 @@ On Linux, use `wl-paste` or `xclip -o` in place of `pbpaste`.
 
 **3. Tell your agents.** Copy [`AGENTS.snippet.md`](AGENTS.snippet.md) into your global agent instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, …). The tool keeps values out of the transcript; the instructions keep the agent from going around the tool.
 
-Then install [the skill](skill/open-agent-keys/SKILL.md), which teaches the commands and makes `/open-agent-keys` (or `@` in Codex) available:
+Then install [the skill](skills/open-agent-keys/SKILL.md), which teaches the commands and makes `/open-agent-keys` (or `@` in Codex) available:
 
 ```sh
 for d in ~/.claude/skills ~/.codex/skills; do
   [ -d "$d" ] && mkdir -p "$d/open-agent-keys" && curl -fsSL -o "$d/open-agent-keys/SKILL.md" \
-    https://raw.githubusercontent.com/max1874/open-agent-keys/main/skill/open-agent-keys/SKILL.md
+    https://raw.githubusercontent.com/max1874/open-agent-keys/main/skills/open-agent-keys/SKILL.md
 done
 ```
 
