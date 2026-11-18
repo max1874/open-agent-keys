@@ -1,6 +1,6 @@
 [package]
 name = "open-agent-keys"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Give AI agents API keys from 1Password or Bitwarden without putting values in the transcript"

@@ -44,12 +44,10 @@ flowchart LR
 **1. Install** it (macOS on Apple silicon or Intel, Linux on x86_64 or ARM64), plus your store's CLI (`op` or `bws`):
 
 ```sh
-mkdir -p ~/.local/bin && curl -fsSL "https://github.com/max1874/open-agent-keys/\
-releases/latest/download/open-agent-keys-$(uname -s)-$(uname -m).tar.gz" \
-  | tar -xz -C ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/max1874/open-agent-keys/main/install.sh | sh
 ```
 
-Every download has a `.sha256` file beside it in the release. With a Rust toolchain you can build it instead: `cargo install --git https://github.com/max1874/open-agent-keys`.
+[`install.sh`](install.sh) takes the latest release: it checks the binary against its `.sha256`, puts it in `~/.local/bin`, and puts [the skill](skills/open-agent-keys/SKILL.md) from the same release into `~/.claude/skills` and `~/.codex/skills` when they exist. Rerun it to update; `open-agent-keys --version` shows what you have, and `| sh -s -- v0.3.0` installs a given release. With a Rust toolchain you can build it instead: `cargo install --git https://github.com/max1874/open-agent-keys`.
 
 **2. Connect a store.** Expand yours:
 
@@ -111,16 +109,7 @@ On Linux, use `wl-paste` or `xclip -o` in place of `pbpaste`.
 
 **3. Tell your agents.** Copy [`AGENTS.snippet.md`](AGENTS.snippet.md) into your global agent instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, …). The tool keeps values out of the transcript; the instructions keep the agent from going around the tool.
 
-Then install [the skill](skills/open-agent-keys/SKILL.md), which teaches the commands and makes `/open-agent-keys` (or `@` in Codex) available:
-
-```sh
-for d in ~/.claude/skills ~/.codex/skills; do
-  [ -d "$d" ] && mkdir -p "$d/open-agent-keys" && curl -fsSL -o "$d/open-agent-keys/SKILL.md" \
-    https://raw.githubusercontent.com/max1874/open-agent-keys/main/skills/open-agent-keys/SKILL.md
-done
-```
-
-Keep both. A skill loads only when the agent reaches for it, so the snippet is what stops an agent from going around the tool when it never thought to use it. Copy `SKILL.md` rather than linking it: Claude Code and Codex skip a skill whose `SKILL.md` is a symlink.
+The skill that `install.sh` put in place teaches the commands and makes `/open-agent-keys` (or `@` in Codex) available. Keep both. A skill loads only when the agent reaches for it, so the snippet is what stops an agent from going around the tool when it never thought to use it. `install.sh` copies `SKILL.md` rather than linking it, because Claude Code and Codex skip a skill whose `SKILL.md` is a symlink.
 
 **4. Add a key:**
 

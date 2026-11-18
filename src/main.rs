@@ -25,6 +25,7 @@ straight into the environment of the command that needs it.
                                                create from stdin (`pbpaste | open-agent-keys add ...`)
   open-agent-keys note NAME TEXT               replace a key's note
   open-agent-keys rm NAME                      remove a key (1Password archives it, Bitwarden deletes it)
+  open-agent-keys --version                    the installed version; rerun install.sh to update
 
 A key's NAME is its scope's prefix plus its title in upper case, spaces as underscores:
 "Gemini Prod" in a scope with prefix WORK_ is WORK_GEMINI_PROD.
@@ -598,6 +599,7 @@ fn main() {
     let rest = &args[args.len().min(1)..];
     let run: fn(&Keys, &[String]) = match cmd.as_str() {
         "" | "-h" | "--help" | "help" => return println!("{HELP}"),
+        "-V" | "--version" | "version" => return println!("open-agent-keys {}", env!("CARGO_PKG_VERSION")),
         "run" => return cmd_run(&Keys::load(), rest),
         "list" => cmd_list,
         "env" => cmd_env,
