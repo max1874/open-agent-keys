@@ -1,6 +1,7 @@
 name: release
 
-# A v* tag builds open-agent-keys for macOS and Linux and attaches the binaries to a GitHub release.
+# A v* tag builds open-agent-keys for macOS and Linux, attaches the binaries to a GitHub release,
+# and publishes them to npm (npm/publish.ts).
 # Asset names follow `uname -s`-`uname -m`, so the README's one-line install picks the right one.
 on:
   push:
@@ -46,3 +47,23 @@ jobs:
       - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes open-agent-keys-*
         env:
           GH_TOKEN: ${{ github.token }}
+
+  npm:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance: the package says which workflow run built it
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: assets
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: node npm/publish.ts "${GITHUB_REF_NAME#v}" assets
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
