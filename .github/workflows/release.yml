@@ -53,7 +53,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm provenance: the package says which workflow run built it
+      # npm trusted publishing: each package trusts this workflow, so no token is stored anywhere;
+      # the same identity signs the provenance that says which run built it.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -65,5 +67,3 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: node npm/publish.ts "${GITHUB_REF_NAME#v}" assets
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

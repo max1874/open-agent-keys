@@ -4,7 +4,8 @@
 //
 //   node npm/publish.ts <version> <dir with the release's .tar.gz assets>
 //
-// Run by .github/workflows/release.yml with NODE_AUTH_TOKEN set. A version already on npm is skipped,
+// Run by .github/workflows/release.yml, which npm trusts to publish these packages (trusted
+// publishing, configured on each package's settings page on npmjs.com). A version already on npm is skipped,
 // so a rerun after a partial failure finishes the job.
 import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
